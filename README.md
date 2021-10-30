@@ -10,7 +10,7 @@ This web app is based on [perpera](https://github.com/peercoin/perpera) library.
 
 ## Run locally:
 
-```
+```bash
 npm install
 npm start
 ```
