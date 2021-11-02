@@ -2,6 +2,7 @@ import * as React from "react";
 import Loader from "src/components/Loader/Loader";
 import "./Status.css";
 import TransportWebUSB from "@ledgerhq/hw-transport-webusb";
+import PerperaService from "src/services/Perpera";
 
 interface IState {
   apiStatus: boolean;
@@ -22,16 +23,25 @@ class Status extends React.Component<{}, IState> {
     };
   }
 
-  public initLedger(e: any) {
+  public async initLedger(e: any) {
     try {
       e.preventDefault();
       console.log("initing ledger")
-      TransportWebUSB.create().then(transport => {
-        console.log(transport)
+      const transport = await TransportWebUSB.create()
+      console.log(transport)
+
+      const perperaService = new PerperaService();
+
+      try {
+        const result = await perperaService.getWalletPublicKey();
+        console.log(result)
+
         this.setState({
           ledgerStatus: true
-        });
-      })
+        })
+
+      } catch (error) { console.log (error )}
+
     } catch (error) { console.log(error) }
   }
 
@@ -70,12 +80,12 @@ class Status extends React.Component<{}, IState> {
 
         {this.state.ledgerStatus && (
           <div className="status-btn status-btn-ledger">
-            <img id="ledgerImage" src="img/ledger-connected.png" alt="disconnected" />
+            <img src="img/ledger-connected.png" alt="connected" />
           </div>
         )}
         {!this.state.ledgerStatus && (
           <div className="status-btn status-btn-ledger" onClick={this.initLedger} >
-            <img id="ledgerImage" src="img/ledger.png" alt="disconnected" />
+            <img src="img/ledger.png" alt="disconnected" />
           </div>
         )}
       </div>
