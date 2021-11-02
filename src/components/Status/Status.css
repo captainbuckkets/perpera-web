@@ -19,3 +19,7 @@
   cursor: pointer;
   user-select: none;
 }
+
+.status-btn-ledger {
+  right: 100px !important;
+}
