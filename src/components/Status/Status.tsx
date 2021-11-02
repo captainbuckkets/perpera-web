@@ -2,7 +2,7 @@ import * as React from "react";
 import Loader from "src/components/Loader/Loader";
 import "./Status.css";
 import TransportWebUSB from "@ledgerhq/hw-transport-webusb";
-import PerperaService from "src/services/Perpera";
+import AppBtc from "@ledgerhq/hw-app-btc";
 
 interface IState {
   apiStatus: boolean;
@@ -30,19 +30,18 @@ class Status extends React.Component<{}, IState> {
       const transport = await TransportWebUSB.create()
       console.log(transport)
 
-      const perperaService = new PerperaService();
+      const appPPC = new AppBtc(transport)
+      console.log(appPPC)
 
-      try {
-        const result = await perperaService.getWalletPublicKey();
-        console.log(result)
+      // Gets PPC wallet info
+      const result = await appPPC.getWalletPublicKey("44'/6'/0'/0/0");
 
+      if (result.bitcoinAddress !== undefined) {
         this.setState({
           ledgerStatus: true
         })
-
-      } catch (error) { console.log (error )}
-
-    } catch (error) { console.log(error) }
+      }
+    } catch (error) { alert("Make sure your Ledger is connected and the Peercoin app is selected and try again.\n" + error) }
   }
 
   public componentDidMount() {
