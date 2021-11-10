@@ -9,6 +9,7 @@ import SuccessPopup from "src/components/SuccessPopup/SuccessPopup";
 import ObservableHelper from "src/helpers/Observable";
 import PerperaService from "src/services/Perpera";
 import "./RegisterPopup.css";
+import { LedgerContext } from "src/ledger-context";
 
 interface IState {
   errorMsg: string;
@@ -118,17 +119,33 @@ class RegisterPopup extends React.Component<{}, IState> {
   public async handleRaw(e: any){
     e.preventDefault();
     this.setState({ isLoading: true });
+
     const perperaService = new PerperaService();
-    try {
-      const result = await perperaService.getRawTransaction(
-        this.state.hash,
-        this.state.hashAlgo,
-        this.state.wif
-      );
-      this.setState({ isLoading: false , rawTx: result});
-      this.copyMessage(result);
-    } catch (e) {
-      this.setState({ errorMsg: "WIF invalid.", isLoading: false });
+
+    if (this.context.connected) {
+      try {
+        const result = await perperaService.getRawTransaction(
+          this.state.hash,
+          this.state.hashAlgo,
+          this.state.wif
+        );
+        this.setState({ isLoading: false , rawTx: result});
+        this.copyMessage(result);
+      } catch(e) {
+        this.setState({ errorMsg: "Something went wrong.", isLoading: false });
+      }
+    } else {
+      try {
+        const result = await perperaService.getRawTransaction(
+          this.state.hash,
+          this.state.hashAlgo,
+          this.state.wif
+        );
+        this.setState({ isLoading: false , rawTx: result});
+        this.copyMessage(result);
+      } catch (e) {
+        this.setState({ errorMsg: "WIF invalid.", isLoading: false });
+      }
     }
   }
 
@@ -136,36 +153,40 @@ class RegisterPopup extends React.Component<{}, IState> {
     e.preventDefault();
     this.setState({ isLoading: true });
 
-    const perperaService = new PerperaService();
+    if (this.context.connected) {
+      console.log("handing form w/ ledger signed in")
+    } else {
+      const perperaService = new PerperaService();
 
-    try {
-      if (this.state.originalHash) {
-        const result = await perperaService.updateDocument(
-          this.state.originalHash,
-          this.state.hash,
-          this.state.hashAlgo,
-          this.state.wif
-        );
-        this.setState({txid: result});
-        console.log(result);
-      } else {
-        const result = await this.reference.commit();
-        this.setState({txid: result});
-        console.log(result);
+      try {
+        if (this.state.originalHash) {
+          const result = await perperaService.updateDocument(
+            this.state.originalHash,
+            this.state.hash,
+            this.state.hashAlgo,
+            this.state.wif
+          );
+          this.setState({txid: result});
+          console.log(result);
+        } else {
+          const result = await this.reference.commit();
+          this.setState({txid: result});
+          console.log(result);
+        }
+        this.setState({ isSuccess: true, isLoading: false });
+      } catch (e) {
+        if (e.toString().includes("Insufficient funds")) {
+          this.setState({
+            errorMsg: "Your wallet has no funds.",
+            isLoading: false
+          });
+          return;
+        }
+
+        console.log(e);
+
+        this.setState({ errorMsg: "WIF invalid.", isLoading: false });
       }
-      this.setState({ isSuccess: true, isLoading: false });
-    } catch (e) {
-      if (e.toString().includes("Insufficient funds")) {
-        this.setState({
-          errorMsg: "Your wallet has no funds.",
-          isLoading: false
-        });
-        return;
-      }
-
-      console.log(e);
-
-      this.setState({ errorMsg: "WIF invalid.", isLoading: false });
     }
   }
 
@@ -175,31 +196,68 @@ class RegisterPopup extends React.Component<{}, IState> {
 
     const perperaService = new PerperaService();
 
-    try {
-      const result = await perperaService.getFee(
-        this.state.hash,
-        this.state.hashAlgo,
-        this.state.wif
-      );
+    if (this.context.connected) {
 
-      this.reference = result.reference;
+      console.log("handing fee w/ ledger signed in")
+      console.log(perperaService)
 
-      this.setState({
-        fee: result.fee,
-        isLoading: false
-      });
-    } catch (e) {
-      if (e.toString().includes("Insufficient funds")) {
+      try {
+
+        const result = await perperaService.createLedgerTx(
+          this.state.hash,
+          this.state.hashAlgo,
+          this.context.address
+        )
+        console.log(result)
+        // this.reference = result.reference
+
         this.setState({
-          errorMsg: "Your wallet has no funds.",
+          // TODO: Add fee
+          fee: result.fee,
           isLoading: false
         });
-        return;
+
+        console.log(this.state)
+
+        // console.log(await appPPC.signP2SHTransaction({
+        //   inputs: [ result.tx],
+        //   associatedKeysets: ["44'/6'/0'/0/0"],
+        //   outputScriptHex: String(result.tx.hash)
+        // }))
+
+      } catch (error) {
+        console.log(error)
+        this.setState({ errorMsg: String(error), isLoading: false });
       }
 
-      console.log(e);
+    } else {
 
-      this.setState({ errorMsg: "WIF invalid.", isLoading: false });
+      try {
+        const result = await perperaService.getFee(
+          this.state.hash,
+          this.state.hashAlgo,
+          this.state.wif
+        );
+
+        this.reference = result.reference;
+
+        this.setState({
+          fee: result.fee,
+          isLoading: false
+        });
+      } catch (e) {
+        if (e.toString().includes("Insufficient funds")) {
+          this.setState({
+            errorMsg: "Your wallet has no funds.",
+            isLoading: false
+          });
+          return;
+        }
+
+        console.log(e);
+
+        this.setState({ errorMsg: "WIF invalid.", isLoading: false });
+      }
     }
   }
 
@@ -288,15 +346,22 @@ class RegisterPopup extends React.Component<{}, IState> {
 
             {!this.state.fee && (
               <form className="form" onSubmit={this.handleFee}>
-                <label>Insert your WIF:{this.renderEye()}</label>
-                <input
-                  className="form-field"
-                  autoCorrect="false"
-                  placeholder="Type WIF here..."
-                  value={wif.trim()}
-                  onChange={this.handleWIF}
-                  type={showPassword ? "text" : "password"}
-                />
+                {this.context.connected && (
+                  <label>Ledger Connected!</label>
+                )}
+                {!this.context.connected && (
+                  <div>
+                    <label>Insert your WIF:{this.renderEye()}</label>
+                    <input
+                      className="form-field"
+                      autoCorrect="false"
+                      placeholder="Type WIF here..."
+                      value={wif.trim()}
+                      onChange={this.handleWIF}
+                      type={showPassword ? "text" : "password"}
+                    />
+                  </div>
+                )}
                 {this.state.errorMsg && (
                   <div className="error-msg">{this.state.errorMsg}</div>
                 )}
@@ -355,5 +420,7 @@ class RegisterPopup extends React.Component<{}, IState> {
     );
   }
 }
+
+RegisterPopup.contextType = LedgerContext;
 
 export default RegisterPopup;
