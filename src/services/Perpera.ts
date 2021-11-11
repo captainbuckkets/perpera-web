@@ -97,19 +97,31 @@ public async createLedgerTx(hash: string, hashAlgo: string, address: string) {
               inputs: inputsArray,
               outputs: outputsArray
           }
+
+          console.log(tempTx)
+
           const outputHash = appPPC.serializeTransactionOutputs(tempTx).toString('hex')
-          const signedTx = await appPPC.signP2SHTransaction({
-            inputs: [ [tempTx, 0, "", 0]],
+
+          const transaction = appPPC.createPaymentTransactionNew({
+            inputs: [[tempTx, 1, address, 0]],
             associatedKeysets: ["44'/6'/0'/0/0"],
-            outputScriptHex: outputHash
+            outputScriptHex: outputHash,
+            lockTime: 0,
+            additionals: [],
           })
-          console.log(signedTx)
-          // 
-          // const transaction = await appPPC.signP2SHTransaction({
-          //   inputs: tempTx,
+          console.log(transaction)
+
+
+          // console.log(outputHash)
+
+          // const signedTx = await appPPC.signP2SHTransaction({
+          //   inputs: [ [tempTx, 1, address, 0]],
           //   associatedKeysets: ["44'/6'/0'/0/0"],
-          //   outputScriptHex: outputHash
+          //   outputScriptHex: outputHash,
+          //   lockTime: 0
           // })
+          // console.log(signedTx)
+
           return {
             fee: fee / 10 ** 6,
             // transaction: transaction
