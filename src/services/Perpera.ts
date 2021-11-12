@@ -58,10 +58,10 @@ export default class PerperaService {
     const minOutputFee: number = this.perpera.networks.peercoin.minOutput
     console.log(p2thFee, minOutputFee)
     // p2thFee
-    transaction.addOutput(
-      new Buffer(doc.address.hashBuffer),
-      p2thFee
-    )
+    // transaction.addOutput(
+    //   new Buffer(doc.address.hashBuffer),
+    //   p2thFee
+    // )
     // Add data
     transaction.addOutput(
       new Buffer(hash),
