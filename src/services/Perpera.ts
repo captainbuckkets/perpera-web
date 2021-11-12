@@ -1,9 +1,10 @@
 
 import TransportWebUSB from "@ledgerhq/hw-transport-webusb";
 import AppBtc from "@ledgerhq/hw-app-btc";
-import { TransactionInput } from "@ledgerhq/hw-app-btc/src/types"
-import { TransactionOutput } from "@ledgerhq/hw-app-btc/lib/types";
-import { Transaction } from "@ledgerhq/hw-app-btc/lib/types";
+// import { TransactionInput } from "@ledgerhq/hw-app-btc/src/types"
+// import { TransactionOutput } from "@ledgerhq/hw-app-btc/lib/types";
+// import { Transaction } from "@ledgerhq/hw-app-btc/lib/types";
+const coinjs = require('coinjs-lib');
 
 export default class PerperaService {
   private perpera: any;
@@ -32,232 +33,107 @@ export default class PerperaService {
     return await doc.updateContent({ hashAlgo: hash }, spender);
   }
 
-public async createLedgerTx(hash: string, hashAlgo: string, address: string) {
+  public async createLedgerTx(hash: string, hashAlgo: string, address: string) {
+
+    console.log(hash, address)
+
+    const doc = new this.perpera.Document(hash, this.network)
+    console.log(doc)
 
     const transport = await TransportWebUSB.create()
     const appPPC = new AppBtc(transport)
     console.log(appPPC)
+    const transaction = new coinjs.TransactionBuilder('peercoin')
 
-    const outputsArray: TransactionOutput[] = []
+    // Set our version
+    transaction.setVersion(3)
+    // Set our timestamp
+    transaction.tx.timestamp = null
+    // Set our locktime?
+    transaction.tx.locktime = 0
 
-    console.log(this.perpera)
+    // Add outputs (scriptPubKey, value) //////////////////
+    // 480 perpera.js
+    const p2thFee: number = this.perpera.networks.peercoin.p2thFee
+    const minOutputFee: number = this.perpera.networks.peercoin.minOutput
+    console.log(p2thFee, minOutputFee)
+    // p2thFee
+    transaction.addOutput(
+      new Buffer(doc.address.hashBuffer),
+      p2thFee
+    )
+    // Add data
+    transaction.addOutput(
+      new Buffer(hash),
+      0
+    )
+    // Add minOutput
+    transaction.addOutput(
+      new Buffer(address),
+      minOutputFee
+    )
 
-    // Process outputs
-    // Add p2thFee
-    const p2thFeeOutput: TransactionOutput = {
-      amount: new Buffer(String(this.perpera.networks.peercoin.p2thFee)),
-      // TODO: This needs to go to the p2th address 
-      script: new Buffer(String(address)),
-    }
-    outputsArray.push(p2thFeeOutput)
-
-    // Add the data
-    const dataOutput: TransactionOutput = {
-      amount: new Buffer("0"),
-      script: new Buffer(hash)
-    }
-    outputsArray.push(dataOutput)
-
-    // Add min output - perpera.js line 479
-    const minOutput: TransactionOutput = {
-      amount: new Buffer(String(this.perpera.networks.peercoin.minOutput)),
-      script: new Buffer(String(address))
-    }
-    outputsArray.push(minOutput)
-
-    const p2thFee = this.perpera.networks.peercoin.p2thFee
-    const minOutputFee = this.perpera.networks.peercoin.minOutput
-
-    // Get our balance
     let balance = -(minOutputFee + p2thFee)
-    console.log(balance)
+    console.log(transaction, "balance", balance)
+    let fee = this.getLedgerFee(transaction.tx.ins.length, transaction.tx.outs.length)
 
-    // Process inputs
-    // Fetch from chainz
-    const unspentData = await fetch("https://chainz.cryptoid.info/ppc/api.dws?key=5aae7ab0624d&q=unspent&active=" + address)
-    const unspentJson = await unspentData.json();
-    console.log("Unspents", unspentJson.unspent_outputs)
+    // Gather inputs //////////
+    const unspentsMasterObj = await fetch("https://blockbook.peercoin.net/api/utxo/" + address)
+    const unspentMaster = await unspentsMasterObj.json()
+    console.log(unspentMaster)
+    // https://blockbook.peercoin.net/api/tx/{txid}
 
-    // Collect our inputs
-    const inputsArray: TransactionInput[] = []
-
-    let fee = this.getLedgerFee(inputsArray.length, outputsArray.length)
-
-    // TODO: Check to make sure this breaks or handles being broke
-    while (true) {
-      for (const unspent of unspentJson.unspent_outputs) {
+    // Add inputs
+    let txIndex = 0
+    while (balance <= fee) {
+      for (const unspentRaw of unspentMaster) {
         // Update our fee
-        fee = this.getLedgerFee(inputsArray.length, outputsArray.length)
-        if (balance >= fee) {
-          console.log(p2thFee)
-          fee += p2thFee
-          // Change address
-          const tempTx: Transaction = {
-              version: new Buffer("3"),
-              inputs: inputsArray,
-              outputs: outputsArray
-          }
-
-          console.log(tempTx)
-
-          const outputHash = appPPC.serializeTransactionOutputs(tempTx).toString('hex')
-
-          const transaction = appPPC.createPaymentTransactionNew({
-            inputs: [[tempTx, 1, address, 0]],
-            associatedKeysets: ["44'/6'/0'/0/0"],
-            outputScriptHex: outputHash,
-            lockTime: 0,
-            additionals: [],
-          })
-          console.log(transaction)
-
-
-          // console.log(outputHash)
-
-          // const signedTx = await appPPC.signP2SHTransaction({
-          //   inputs: [ [tempTx, 1, address, 0]],
-          //   associatedKeysets: ["44'/6'/0'/0/0"],
-          //   outputScriptHex: outputHash,
-          //   lockTime: 0
-          // })
-          // console.log(signedTx)
-
-          return {
-            fee: fee / 10 ** 6,
-            // transaction: transaction
+        fee = this.getLedgerFee(transaction.tx.ins.length, transaction.tx.outs.length)
+        // Fetch our unspent by txid
+        const unspentObj = await fetch("https://blockbook.peercoin.net/api/tx/" + unspentRaw.txid)
+        const unspent = await unspentObj.json()
+        // Iterate through our vouts
+        for (const vout of unspent.vout) {
+          console.log(vout)
+          if (vout.scriptPubKey.addresses[0] === address) {
+            transaction.addInput(
+              unspent.txid,
+              vout.n,
+              txIndex,
+              new Buffer(vout.scriptPubKey.hex)
+            )
+            balance += parseInt((parseInt(vout.value) * 100000000).toFixed(8))
+            txIndex++
           }
         }
-        // Add the input
-        const input: TransactionInput = {
-          prevout: unspent.tx_hash,
-          script: unspent.script,
-          // This typo is intentional ("tx_output_n"). Preemptively fixing this incase it ever changes
-          sequence: unspent.tx_output_n ?? unspent.tx_ouput_n
-        }
-        inputsArray.push(input)
-        balance += unspent.value
-        console.log("Balance", balance)
-      }
-      if (balance <= fee)  {
-        console.log("Balance is less than fee")
-        throw new Error("Insufficient funds.")
-        break
       }
     }
 
-    // console.log(fee)
+    // Set our fee
+    fee = this.getLedgerFee(transaction.tx.ins.length, transaction.tx.outs.length)
+    transaction.tx.fee = fee
 
+    // Add the change address
+    transaction.addOutput(new Buffer(address), balance - fee)
 
-    // for (const unspent of unspentJson.unspent_outputs) {
-    //   const input: TransactionInput = {
-    //     prevout: unspent.tx_hash,
-    //     script: unspent.script,
-    //     // This typo is intentional ("tx_output_n"). Preemptively fixing this incase it ever changes
-    //     sequence: unspent.tx_output_n ?? unspent.tx_ouput_n
-    //   }
-    //   inputsArray.push(input)
-    //   balance += unspent.value
-    //   if (balance >= fee) { break }
-    // }
+    const rawTx = transaction.buildIncomplete().toHex()
+    const outputHash = appPPC.serializeTransactionOutputs(rawTx).toString('hex')
+    console.log(outputHash)
 
-    // In every bitcoin transaction, the inputs contribute 180 bytes each to the transaction,
-    // while the output contributes 34 bytes each to the transaction. Then there is an extra 
-    // 10 bytes you add or subtract from the transaction as well.
-   
+    // const signedTx = appPPC.createPaymentTransactionNew({
+    //     inputs: [[rawTx, 1, address, 0]],
+    //     associatedKeysets: ["44'/6'/0'/0/0"],
+    //     outputScriptHex: outputHash,
+    //     lockTime: 0,
+    //     additionals: [],
+    //   })
+    console.log("GOOD TX", transaction, txIndex)
+    return {
+      outputHash: outputHash,
+      rawTx: rawTx,
+      fee: fee / 10 ** 6,
+    }
 
-    // to(address, this.perpera.networks.peercoin.p2thFee)
-    // .to(address, this.perpera.networks.peercoin.minOutput)
-
-    // to address, network.p2thFee
-    // addData
-    // to address, minOutput
-    // balance = -(network.p2thFee + network.minOutput)
-
-    // const p2thFee: TransactionOutput = {
-    //   amount: new Buffer(this.state.fee)
-    // }
-
-    // const tempTx: Transaction = {
-    //   version: new Buffer("3"),
-    //   inputs: inputsArray,
-    //   outputs: outputsArray
-    // }
-    // console.log(tempTx)
-
-    // const txHash = appPPC.serializeTransaction(tempTx)
-    // console.log("txHash", txHash)
-    // console.log(txHash.toString())
-
-    // let fee = 0
-
-    // return {
-    //     tx: tempTx,
-    //     fee: fee / 10**6,
-    //     reference: ""
-    //   }
-
-    // let outputScriptHex
-
-    // const tx = appPPC.createTransaction({
-    //   inputs: inputsArray,
-    //   associatedKeysets: ["44'/6'/0'/0/0"],
-    //   outputScriptHex,
-    //   segwit: true,
-    //   additionals: ["bech32"]
-    // })
-    // console.log(tx)
-
-    // const tx = new this.perpera.Transaction();
-    // // Set version to 3
-    // tx.version = 3;
-    // // Set outputs
-    // tx.to(address, this.perpera.networks.peercoin.p2thFee)
-    //   .addData(hash)
-    //   .to(address, this.perpera.networks.peercoin.minOutput)
-
-    // let balance = -(this.perpera.networks.peercoin.p2thFee + this.perpera.networks.peercoin.minOutput);
-
-    // const unspentData = await fetch("https://chainz.cryptoid.info/ppc/api.dws?key=5aae7ab0624d&q=unspent&active=" + address)
-    // const unspentJson = await unspentData.json();
-    // const unspentArray = unspentJson.unspent_outputs;
-    // console.log(unspentArray)
-    // if (unspentArray.length === 0) alert("No unspent outputs found for this address");
-    // // Append the unspents starting with the most recent to avoid disrupting stakes
-    // const txSize = tx.toBuffer().length;
-    // const fee = this.perpera.networks.peercoin.getFee(txSize)
-    // console.log(fee)
-    // // https://blockbook.peercoin.net/api/utxo/PM21gPYk1rW64TMFXfmiNXzRU6sfdiLaWX
-
-    // console.log("tx", tx)
-    // for (const utxo of unspentArray) {
-    //   console.log(utxo)
-    //   if (balance >= fee) console.log("you have enough")
-
-    //   // Have to spoof it so its compatible
-    //   // Referencing perpera.js line 16589
-    //   tx.from({
-    //     txId: utxo.tx_hash,
-    //     outputIndex: utxo.tx_ouput_n,
-    //     amount: String(utxo.value / 100000000),
-    //     address: address,
-    //     script: utxo.script,
-    //     satoshis: utxo.value
-    //   });
-
-    //   console.log(tx);
-    //   balance += utxo.value;
-    // }
-
-    // // Send the remaining balance back to myself
-    // tx.fee(fee);
-    // tx.change(address);
-    // console.log("serialized tx");
-
-    // return {
-    //   tx: tx,
-    //   fee: fee / 10**6,
-    //   reference: ""
-    // }
   }
 
   public getLedgerFee(inputsArrayLength: number, outputsArrayLength: number) {
