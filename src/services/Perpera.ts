@@ -40,17 +40,20 @@ export default class PerperaService {
     const doc = new this.perpera.Document(hash, this.network)
     console.log(doc)
 
-    const transport = await TransportWebUSB.create()
+    const timeout = 50000
+    const transport = await TransportWebUSB.create(timeout)
     const appPPC = new AppBtc(transport)
     console.log(appPPC)
+
+
     const transaction = new coinjs.TransactionBuilder('peercoin')
 
     // Set our version
     transaction.setVersion(3)
     // Set our timestamp
-    transaction.tx.timestamp = null
+    transaction.setTimestamp = null
     // Set our locktime?
-    transaction.tx.locktime = 0
+    transaction.setLocktime = 0
 
     // Add outputs (scriptPubKey, value) //////////////////
     // 480 perpera.js
@@ -59,7 +62,7 @@ export default class PerperaService {
     console.log(p2thFee, minOutputFee)
     // p2thFee
     // transaction.addOutput(
-    //   new Buffer(doc.address.hashBuffer),
+    //   new Buffer(doc.address),
     //   p2thFee
     // )
     // Add data
@@ -116,17 +119,25 @@ export default class PerperaService {
     // Add the change address
     transaction.addOutput(new Buffer(address), balance - fee)
 
-    const rawTx = transaction.buildIncomplete().toHex()
-    const outputHash = appPPC.serializeTransactionOutputs(rawTx).toString('hex')
+    console.log(transaction)
+
+    const rawTx = transaction.buildIncomplete().toHex() 
+
+    const ledgerTX = appPPC.splitTransaction(rawTx)
+    console.log(ledgerTX)
+
+    const outputHash = appPPC.serializeTransactionOutputs(ledgerTX).toString('hex')
     console.log(outputHash)
 
-    // const signedTx = appPPC.createPaymentTransactionNew({
-    //     inputs: [[rawTx, 1, address, 0]],
-    //     associatedKeysets: ["44'/6'/0'/0/0"],
-    //     outputScriptHex: outputHash,
-    //     lockTime: 0,
-    //     additionals: [],
-    //   })
+    const signedTx = await appPPC.createPaymentTransactionNew({
+        inputs: [[ledgerTX, 1, undefined, undefined]],
+        associatedKeysets: ["44'/6'/0'/0/0"],
+        outputScriptHex: outputHash,
+        lockTime: 0,
+        additionals: [],
+      })
+    console.log(signedTx)
+
     console.log("GOOD TX", transaction, txIndex)
     return {
       outputHash: outputHash,
@@ -144,6 +155,7 @@ export default class PerperaService {
 
   public async getFee(hash: string, hashAlgo: string, wif: string) {
     const doc = new this.perpera.Document(hash, this.network);
+    console.log(doc.address)
     const spender = this.perpera.Spender.fromWIF(wif.trim(), this.network);
     await spender.sync();
     const update = await doc.considerUpdatingContent({ hashAlgo: hash }, spender);
